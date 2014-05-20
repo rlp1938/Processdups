@@ -340,3 +340,4 @@ FILE *dofopen(const char *path, const char *mode)
 	}
 	return fp;
 } // dofopen()
+
