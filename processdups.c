@@ -83,7 +83,11 @@ int main(int argc, char **argv)
 	char *dupsfile;
 	char *from, *to, *line, *writefrom;
 	struct hashrecord hrt, hrlist[30];
-
+	char *destroy =
+	"Enter the path number to preserve, will DELETE others: ";
+	char *destroyAndLink =
+	"Enter the path number to preserve, will LINK others to that: ";
+	char *print_this;
 
 	// set defaults
 	linkthem = 0;
@@ -169,8 +173,12 @@ int main(int argc, char **argv)
 				hrlist[hrindex].path, hrlist[hrindex].ino,
 				hrlist[hrindex].ftyp);
 		}
-		fprintf(stdout, "%s ",
-		"Enter the path number to preserve, will delete others: "
+		if (linkthem) {
+			print_this = destroyAndLink;
+		} else {
+			print_this = destroy;
+		}
+		fprintf(stdout, "%s%s", print_this,
 		"\n(Enter -1 to ignore this group.)"
 		"\n(Enter -5 to delete all of this group.)"
 		"\n(Enter any other number to quit.)" );
