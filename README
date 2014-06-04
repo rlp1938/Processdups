@@ -1,0 +1,3 @@
+Processes a list of duplicated files produced by the program
+'duplicates'. The program is interactive and asks instructions for every
+replicated set in the list.

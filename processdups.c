@@ -33,6 +33,8 @@
 
 #include "config.h"
 
+char *pathend = "!*END*!";
+
 struct filedata {
     char *from; // start of file content
     char *to;   // last byte of data + 1
@@ -82,7 +84,7 @@ int main(int argc, char **argv)
 	struct filedata *fdat;
 	char *dupsfile;
 	char *from, *to, *line, *writefrom;
-	struct hashrecord hrt, hrlist[30];
+	struct hashrecord hrlist[30];
 	char *destroy =
 	"Enter the path number to preserve, will DELETE others: ";
 	char *destroyAndLink =
@@ -136,6 +138,14 @@ int main(int argc, char **argv)
 	from = fdat->from;
 	to = fdat->to;
 	writefrom = from;
+	// turn the entire amorphous mess into an array of C strings
+	{
+		char *cp = from;
+		while (cp < to) {
+			if (*cp == '\n') *cp = '\0';
+			cp++;
+		}
+	}
 
 	line = writefrom;
 	while (line < to) {
@@ -150,15 +160,13 @@ int main(int argc, char **argv)
 		strcpy(currenthash, hr.thesum);
 		hrlist[hrindex] = hr;
 		hrindex++;
-		line2 = memchr(line, '\n', PATH_MAX);
-		line2++;	// at beginning next line.
+		line2 = line + strlen(line) +1;	// at beginning next line.
 		hr = parse_line(line2);
 		while (strcmp((char *)currenthash, (char *)hr.thesum) == 0) {
 			hrlist[hrindex] = hr;
 			hrindex++;
 			// get next line
-			line2 = memchr(line2, '\n', PATH_MAX);
-			line2++;	// line beginning
+			line2 = line2 + strlen(line2) +1;	// line beginning
 			if (strlen(line2)) {
 				hr = parse_line(line2);
 			} else {
@@ -191,7 +199,6 @@ int main(int argc, char **argv)
 		if (chosen == -1) goto reinit;
 		if (chosen == -5) {
 			doquit = 0;
-			preservepath == NULL;
 		}
 		if (chosen >= 0 && chosen < hrtotal) doquit = 0;
 		if (doquit) break;
@@ -224,7 +231,16 @@ reinit:
 		writefrom = line;	// when I quit I'll rewrite the dups file
 							// from writefrom
 	}
-	if (writefrom != from) dofwrite(dupsfile, writefrom, to);
+	if (writefrom != from) {
+		FILE *fpo = dofopen(dupsfile, "w");
+		line = writefrom;
+		while(line < to) {
+			fprintf(fpo, "%s\n", line);
+			line += strlen(line);
+			line++;	// looking at next line
+		}
+		fclose(fpo);
+	}
 	return 0;
 }
 
@@ -291,33 +307,25 @@ struct filedata *readfile(char *path, int fatal)
 struct hashrecord parse_line(char *line)
 {
 	// <path> <MD5> <inode> <f|s>
-	char work[PATH_MAX];
 	char *cp, *bcp;
 	struct hashrecord hr;
+	char buf[PATH_MAX];
 
-	bcp = &work[0];
-	cp = line;	// looking at input path.
-	while (*cp != ' ') {
-		*bcp = *cp;
-		bcp++; cp++;
-	}
-	*bcp = '\0';
-	strcpy(hr.path, work);
+	strcpy(buf, line);
+	cp = strstr(buf, pathend);
+	*cp = '\0';
+	strcpy(hr.path, buf);
+	cp += strlen(pathend);
 	cp++;	// looking at input MD5sum.
-	bcp = (char *)hr.thesum;
-	while (*cp != ' ') {
-		*bcp = *cp;
-		bcp++; cp++;
-	}
-	*bcp = '\0';
+	strncpy(hr.thesum, cp, 32);
+	hr.thesum[32] = '\0';
+	cp += 32;
 	cp++;	// looking at input inode, as string.
-	bcp = hr.ino;
-	while (*cp != ' ') {
-		*bcp = *cp;
-		bcp++; cp++;
-	}
+	bcp = cp;
+	while (*bcp != ' ') bcp++;
 	*bcp = '\0';
-	cp++;	// looking at a char [f|s]
+	strcpy(hr.ino, cp);
+	cp = bcp + 1;	// looking at a char [f|s]
 	hr.ftyp = *cp;
 
 	hr.line = line;	// not sure that I need this at all.
