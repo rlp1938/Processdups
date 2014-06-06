@@ -48,17 +48,17 @@ struct hashrecord {
 	char *line;
 };
 
-void help_print(int forced);
-FILE *dofopen(const char *path, const char *mode);
-char *dostrdup(const char *s);
-char *domd5sum(const char *pathname);
-struct hashrecord parse_line(char *line);
-void clipeol(char *line);
-char *thepathname(char *line);
-char *getcluster(char *path, int depth);
-struct filedata *readfile(char *path, int fatal);
-struct filedata *mkstructdata(char *from, char *to);
-void dofwrite(char *filename, char *from, char *to);
+static void help_print(int forced);
+static FILE *dofopen(const char *path, const char *mode);
+static char *dostrdup(const char *s);
+static char *domd5sum(const char *pathname);
+static struct hashrecord parse_line(char *line);
+static void clipeol(char *line);
+static char *thepathname(char *line);
+static char *getcluster(char *path, int depth);
+static struct filedata *readfile(char *path, int fatal);
+static struct filedata *mkstructdata(char *from, char *to);
+static void dofwrite(char *filename, char *from, char *to);
 
 void *memmem(const void *haystack, size_t haystacklen,
              const void *needle, size_t needlelen);
@@ -66,14 +66,14 @@ void *memmem(const void *haystack, size_t haystacklen,
 
 
 
-char *helptext = "\n\tUsage: processdups [option] duplicates-list\n"
+static char *helptext = "\n\tUsage: processdups [option] duplicates-list\n"
   "\n\tOptions:\n"
   "\t-h outputs this help message.\n"
   "\t-l causes deleted paths to be re-instated as hard links.\n"
   "\tNB this an interactive program which tells you what it wants\n"
   "\t\ton the way.\n"
   ;
-int linkthem;
+static int linkthem;
 
 
 int main(int argc, char **argv)
