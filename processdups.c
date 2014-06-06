@@ -157,6 +157,7 @@ int main(int argc, char **argv)
 		// give user chance to quit here.
 		hrindex = hrtotal = 0;
 		hr = parse_line(line);
+		if (!strlen(hr.path)) break;
 		strcpy(currenthash, hr.thesum);
 		hrlist[hrindex] = hr;
 		hrindex++;
@@ -169,6 +170,7 @@ int main(int argc, char **argv)
 			line2 = line2 + strlen(line2) +1;	// line beginning
 			if (strlen(line2)) {
 				hr = parse_line(line2);
+				if (!(strlen(hr.path))) break;
 			} else {
 				break;
 			}
@@ -313,7 +315,13 @@ struct hashrecord parse_line(char *line)
 
 	strcpy(buf, line);
 	cp = strstr(buf, pathend);
-	*cp = '\0';
+	if (cp) {
+		*cp = '\0';
+	} else {
+		hr.path[0] = '\0';
+		return hr;
+	}
+
 	strcpy(hr.path, buf);
 	cp += strlen(pathend);
 	cp++;	// looking at input MD5sum.
