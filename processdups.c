@@ -30,7 +30,7 @@
 #include <string.h>
 #include <errno.h>
 #include <dirent.h>
-
+#include <ctype.h>
 #include "config.h"
 
 char *pathend = "!*END*!";
@@ -50,24 +50,19 @@ struct hashrecord {
 
 static void help_print(int forced);
 static FILE *dofopen(const char *path, const char *mode);
-static char *dostrdup(const char *s);
-static char *domd5sum(const char *pathname);
 static struct hashrecord parse_line(char *line);
-static void clipeol(char *line);
-static char *thepathname(char *line);
-static char *getcluster(char *path, int depth);
 static struct filedata *readfile(char *path, int fatal);
 static struct filedata *mkstructdata(char *from, char *to);
-static void dofwrite(char *filename, char *from, char *to);
+static int get_user_input(struct hashrecord *hrlist, const int hrmax,
+							const char *currenthash);
+static void dounlink(const char *path, int fatal);
+static void dolink(const char *oldpath, const char *newpath, int fatal);
 
-void *memmem(const void *haystack, size_t haystacklen,
+extern void *memmem(const void *haystack, size_t haystacklen,
              const void *needle, size_t needlelen);
 
-
-
-
-static char *helptext = "\n\tUsage: processdups [option] duplicates-list\n"
-  "\n\tOptions:\n"
+static char *helptext =
+  "\n\tUsage: processdups [option] duplicates-list\n \n\tOptions:\n"
   "\t-h outputs this help message.\n"
   "\t-l causes deleted paths to be re-instated as hard links.\n"
   "\tNB this an interactive program which tells you what it wants\n"
@@ -78,18 +73,17 @@ static int linkthem;
 
 int main(int argc, char **argv)
 {
-	int opt, doquit;
-	char choice[10];
+	int opt;
 	struct stat sb;
 	struct filedata *fdat;
 	char *dupsfile;
-	char *from, *to, *line, *writefrom;
+	char *from, *to, *line1, *writefrom;
 	struct hashrecord hrlist[30];
-	char *destroy =
-	"Enter the path number to preserve, will DELETE others: ";
-	char *destroyAndLink =
-	"Enter the path number to preserve, will LINK others to that: ";
-	char *print_this;
+	int hrindex, hrtotal;
+	char currenthash[33];
+	char *line2;
+	struct hashrecord hr;
+
 
 	// set defaults
 	linkthem = 0;
@@ -147,99 +141,41 @@ int main(int argc, char **argv)
 		}
 	}
 
-	line = writefrom;
-	while (line < to) {
-		int hrindex, hrtotal, chosen;
-		char currenthash[33];
-		char *line2;
-		char *preservepath = NULL;
-		struct hashrecord hr;
-		// give user chance to quit here.
-		hrindex = hrtotal = 0;
-		hr = parse_line(line);
-		if (!strlen(hr.path)) break;
-		strcpy(currenthash, hr.thesum);
+	line1 = writefrom;
+	// give user chance to quit here.
+	hrindex = hrtotal = 0;
+	hr = parse_line(line1);
+	strcpy(currenthash, hr.thesum);
+	hrlist[hrindex] = hr;
+	hrindex++;
+	line2 = line1 + strlen(line1) +1;	// at beginning next line.
+	while (line2 < to) {
+		hr = parse_line(line2);
+		if (strcmp(currenthash, hr.thesum) != 0 ) {
+			// re-init the process
+			if (get_user_input(hrlist, hrindex, currenthash) == -1)
+				goto done;
+			hrindex = 0;
+			strcpy(currenthash, hr.thesum);
+			writefrom = line2;
+		}
 		hrlist[hrindex] = hr;
 		hrindex++;
-		line2 = line + strlen(line) +1;	// at beginning next line.
-		hr = parse_line(line2);
-		while (strcmp((char *)currenthash, (char *)hr.thesum) == 0) {
-			hrlist[hrindex] = hr;
-			hrindex++;
-			// get next line
-			line2 = line2 + strlen(line2) +1;	// line beginning
-			if (strlen(line2)) {
-				hr = parse_line(line2);
-				if (!(strlen(hr.path))) break;
-			} else {
-				break;
-			}
-		}
-		hrtotal = hrindex;
-		// display list of dups and get delete criteria
-		fprintf(stdout, "\n\tMD5SUM: %s\n", currenthash);
-		for (hrindex=0; hrindex<hrtotal; hrindex++){
-			fprintf(stdout, " %d%s  %s %c\n", hrindex,
-				hrlist[hrindex].path, hrlist[hrindex].ino,
-				hrlist[hrindex].ftyp);
-		}
-		if (linkthem) {
-			print_this = destroyAndLink;
-		} else {
-			print_this = destroy;
-		}
-		fprintf(stdout, "%s%s", print_this,
-		"\n(Enter -1 to ignore this group.)"
-		"\n(Enter -5 to delete all of this group.)"
-		"\n(Enter any other number to quit.)" );
-		if (!(fgets(choice, 10, stdin))) {
-			perror(choice);	// stop gcc bitching
-		}
-		chosen = atoi(choice);
-		// Range check on chosen.
-		doquit = 1;
-		if (chosen == -1) goto reinit;
-		if (chosen == -5) {
-			doquit = 0;
-		}
-		if (chosen >= 0 && chosen < hrtotal) doquit = 0;
-		if (doquit) break;
-		// Subject to some deletions having been made, this will rewrite
-		// the dups file with last bundle of entries still in the file.
-		for (hrindex=0; hrindex<hrtotal; hrindex++){
-			// unlink the losers
-			if (hrindex != chosen){
-				if (unlink(hrlist[hrindex].path) == -1){
-					perror(hrlist[hrindex].path);
-				}
-			} else {
-				preservepath = hrlist[hrindex].path;
-			}
-		}
-		sync();
-		if (!(linkthem)) goto reinit;
-		for (hrindex=0; hrindex<hrtotal; hrindex++){
-			// relink the losers
-			if (hrindex == chosen) continue;
-			if (preservepath) {
-				if (link(preservepath, hrlist[hrindex].path) == -1){
-					perror(hrlist[hrindex].path);
-				}
-			}
-		}
-reinit:
-		// re-initialise line
-		line = line2;	// hr will be done again at top.
-		writefrom = line;	// when I quit I'll rewrite the dups file
-							// from writefrom
+		line2 += strlen(line2) + 1;
+	} // while(line2 ...)
+	if (hrindex) {
+		get_user_input(hrlist, hrindex, currenthash);
 	}
+
+done:
+
 	if (writefrom != from) {
 		FILE *fpo = dofopen(dupsfile, "w");
-		line = writefrom;
-		while(line < to) {
-			fprintf(fpo, "%s\n", line);
-			line += strlen(line);
-			line++;	// looking at next line
+		line1 = writefrom;
+		while(line1 < to) {
+			fprintf(fpo, "%s\n", line1);
+			line1 += strlen(line1);
+			line1++;	// looking at next line
 		}
 		fclose(fpo);
 	}
@@ -308,51 +244,28 @@ struct filedata *readfile(char *path, int fatal)
 
 struct hashrecord parse_line(char *line)
 {
-	// <path> <MD5> <inode> <f|s>
-	char *cp, *bcp;
+	// <MD5> <inode> <path><pathend> <f|s>
+	char *cp, *eol;
 	struct hashrecord hr;
 	char buf[PATH_MAX];
+	ino_t ino;
 
-	strcpy(buf, line);
-	cp = strstr(buf, pathend);
-	if (cp) {
-		*cp = '\0';
-	} else {
-		hr.path[0] = '\0';
-		return hr;
-	}
-
-	strcpy(hr.path, buf);
-	cp += strlen(pathend);
-	cp++;	// looking at input MD5sum.
+	strcpy(buf, line);	// line is a null terminated C string
+	hr.ftyp = buf[strlen(buf) -1];
+	cp = buf;
 	strncpy(hr.thesum, cp, 32);
 	hr.thesum[32] = '\0';
-	cp += 32;
-	cp++;	// looking at input inode, as string.
-	bcp = cp;
-	while (*bcp != ' ') bcp++;
-	*bcp = '\0';
-	strcpy(hr.ino, cp);
-	cp = bcp + 1;	// looking at a char [f|s]
-	hr.ftyp = *cp;
-
-	hr.line = line;	// not sure that I need this at all.
-
+	cp += 33;	// looking at inode
+	ino = strtoul(cp, NULL, 10);
+	sprintf(hr.ino, "%lu", ino);	// got rid of leading '0'
+	while(isdigit(*cp)) cp++;
+	cp++;	// looking at path
+	eol = strstr(cp, pathend);
+	*eol = '\0';
+	strcpy(hr.path, cp);
+	hr.line = line;	// for gdb maybe
 	return hr;
 } // parse_line()
-
-void dofwrite(char *filename, char *from, char *to)
-{
-	FILE *fpo;
-	size_t written;
-
-	fpo = dofopen(filename, "w");
-	written = fwrite(from, 1, to-from, fpo);
-	if (written != to-from) {
-		fprintf(stderr, "For file: %s\n expected to write: %lu bytes"
-			"but only wrote %lu bytes.\n", filename, to-from, written);
-	}
-} // dofwrite()
 
 FILE *dofopen(const char *path, const char *mode)
 {
@@ -365,3 +278,103 @@ FILE *dofopen(const char *path, const char *mode)
 	return fp;
 } // dofopen()
 
+static int get_user_input(struct hashrecord *hrlist, const int hrmax,
+							const char *currenthash)
+{
+	static char action = 'd';
+	char *cp;
+	int i, choice;
+	char ans[10], ians[10];
+	int hrindex;
+	char *fmt1 = "Action to be taken:\n"
+	"Delete all but selected path (d)\n"
+	"Delete all and hard link them to selected path (l)\n"
+	"Delete the entire list (X)\n"
+	"Ignore this list (i)\n"
+	"Quit this process (q)\n"
+	"Default is < %c >";
+
+	fprintf(stdout, "\tMD5SUM: %s\n", currenthash);
+	for (hrindex=0; hrindex < hrmax; hrindex++){
+		fprintf(stdout,"%d %s %s %c\n", hrindex, hrlist[hrindex].path,
+				hrlist[hrindex].ino, hrlist[hrindex].ftyp);
+	}
+	fprintf(stdout, fmt1, action);
+	fgets(ans, 10, stdin);
+	cp = strchr(ans, '\n');
+	if (cp) *cp = '\0';
+	if (strlen(ans)) action = ans[0];
+	while (!(strchr("dlXiq", action))) {
+		fputs("invalid choice: ", stdout);
+		fgets(ans, 10, stdin);
+		cp = strchr(ans, '\n');
+		if (cp) *cp = '\0';
+		if (strlen(ans)) action = ans[0];
+	}
+	switch(action) {
+		case 'd':
+		choice = -9999;
+		while( choice < 0 || choice >= hrmax){
+			fprintf(stdout, "Path to preserve: %d..%d", 0, hrmax - 1);
+			fgets(ians, 10, stdin);
+			cp = strchr(ians, '\n');
+			*cp = '\0';
+			choice = strtol(ians, NULL, 10);
+		}
+		for (i=0; i<hrmax; i++) {
+			if (i != choice) dounlink(hrlist[i].path, 0);
+		}
+		break;
+		case 'l':
+		choice = -9999;
+		while( choice < 0 || choice >= hrmax){
+			fprintf(stdout, "Path to link to the rest: %d..%d",
+							0, hrmax - 1);
+			fgets(ians, 10, stdin);
+			cp = strchr(ians, '\n');
+			*cp = '\0';
+			choice = strtol(ians, NULL, 10);
+		}
+		for (i=0; i<hrmax; i++) {
+			if (i != choice) dounlink(hrlist[i].path, 0);
+		}
+		sync();
+		for (i=0; i<hrmax; i++) {
+			if (i != choice) {
+				dolink(hrlist[choice].path ,hrlist[i].path, 0);
+			}
+		}
+		break;
+		case 'X':
+		for (i=0; i<hrmax; i++) {
+			dounlink(hrlist[i].path, 0);
+		}
+		break;
+		case 'i':
+		return 0;
+		break;
+		case 'q':
+		return -1;
+		break;
+	}
+	return 0;
+}  // get_user_input()
+
+static void dounlink(const char *path, int fatal)
+{
+	// unlink() with error handling
+	if (unlink(path) == -1) {
+		perror(path);
+		if (fatal) EXIT_FAILURE;
+	}
+}
+
+static void dolink(const char *oldpath, const char *newpath, int fatal)
+{
+	// unlink() with error handling
+	if (link(oldpath, newpath) == -1) {
+		perror(newpath);
+		if (fatal) EXIT_FAILURE;
+	}
+
+}
