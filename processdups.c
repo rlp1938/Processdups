@@ -42,7 +42,8 @@ struct filedata {
 
 struct hashrecord {
 	char thesum[33];
-	char ino[21]; // An ASCII formatted inode up to 20 chars on 64 bit.
+	ino_t ino;	// 64 bit unsigned.
+	dev_t dev;	// 64 bit unsigned.
 	char ftyp;
 	char path[PATH_MAX];
 	char *line;
@@ -57,6 +58,8 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 							const char *currenthash);
 static void dounlink(const char *path, int fatal);
 static void dolink(const char *oldpath, const char *newpath, int fatal);
+static void dosymlink(const char *oldpath, const char *newpath,
+						int fatal);
 
 extern void *memmem(const void *haystack, size_t haystacklen,
              const void *needle, size_t needlelen);
@@ -244,11 +247,10 @@ struct filedata *readfile(char *path, int fatal)
 
 struct hashrecord parse_line(char *line)
 {
-	// <MD5> <inode> <path><pathend> <f|s>
+	// <MD5> <inode> <device> <path><pathend> <f|s>
 	char *cp, *eol;
 	struct hashrecord hr;
 	char buf[PATH_MAX];
-	ino_t ino;
 
 	strcpy(buf, line);	// line is a null terminated C string
 	hr.ftyp = buf[strlen(buf) -1];
@@ -256,12 +258,13 @@ struct hashrecord parse_line(char *line)
 	strncpy(hr.thesum, cp, 32);
 	hr.thesum[32] = '\0';
 	cp += 33;	// looking at inode
-	ino = strtoul(cp, NULL, 10);
-	sprintf(hr.ino, "%lu", ino);	// got rid of leading '0'
-	while(isdigit(*cp)) cp++;
-	cp++;	// looking at path
+	hr.ino = strtoul(cp, NULL, 16);
+	cp += 17;	// past inode, looking at device
+	hr.dev = strtoul(cp, NULL, 16);
+	cp += 17;	// past device, looking at path.
 	eol = strstr(cp, pathend);
 	*eol = '\0';
+	memset(hr.path, 0, PATH_MAX);
 	strcpy(hr.path, cp);
 	hr.line = line;	// for gdb maybe
 	return hr;
@@ -286,6 +289,7 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 	int i, choice;
 	char ans[10], ians[10];
 	int hrindex;
+	dev_t masterdev;
 	char *fmt1 = "Action to be taken:\n"
 	"Delete all but selected path (d)\n"
 	"Delete all and hard link them to selected path (l)\n"
@@ -296,17 +300,21 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 
 	fprintf(stdout, "\tMD5SUM: %s\n", currenthash);
 	for (hrindex=0; hrindex < hrmax; hrindex++){
-		fprintf(stdout,"%d %s %s %c\n", hrindex, hrlist[hrindex].path,
+		fprintf(stdout,"%d %s %lu %c\n", hrindex, hrlist[hrindex].path,
 				hrlist[hrindex].ino, hrlist[hrindex].ftyp);
 	}
 	fprintf(stdout, fmt1, action);
-	fgets(ans, 10, stdin);
+	if (!(fgets(ans, 10, stdin))) {
+		perror("fgets");
+	}
 	cp = strchr(ans, '\n');
 	if (cp) *cp = '\0';
 	if (strlen(ans)) action = ans[0];
 	while (!(strchr("dlXiq", action))) {
 		fputs("invalid choice: ", stdout);
-		fgets(ans, 10, stdin);
+		if (!(fgets(ans, 10, stdin))) {
+			perror("fgets");
+		}
 		cp = strchr(ans, '\n');
 		if (cp) *cp = '\0';
 		if (strlen(ans)) action = ans[0];
@@ -316,7 +324,9 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 		choice = -9999;
 		while( choice < 0 || choice >= hrmax){
 			fprintf(stdout, "Path to preserve: %d..%d", 0, hrmax - 1);
-			fgets(ians, 10, stdin);
+			if (!(fgets(ians, 10, stdin))) {
+				perror("fgets");
+			}
 			cp = strchr(ians, '\n');
 			*cp = '\0';
 			choice = strtol(ians, NULL, 10);
@@ -330,10 +340,11 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 		while( choice < 0 || choice >= hrmax){
 			fprintf(stdout, "Path to link to the rest: %d..%d",
 							0, hrmax - 1);
-			fgets(ians, 10, stdin);
+			if(!(fgets(ians, 10, stdin)))
 			cp = strchr(ians, '\n');
 			*cp = '\0';
 			choice = strtol(ians, NULL, 10);
+			masterdev = hrlist[choice].dev;
 		}
 		for (i=0; i<hrmax; i++) {
 			if (i != choice) dounlink(hrlist[i].path, 0);
@@ -341,9 +352,13 @@ static int get_user_input(struct hashrecord *hrlist, const int hrmax,
 		sync();
 		for (i=0; i<hrmax; i++) {
 			if (i != choice) {
-				dolink(hrlist[choice].path ,hrlist[i].path, 0);
+				if (masterdev == hrlist[i].dev) {
+					dolink(hrlist[choice].path ,hrlist[i].path, 0);
+				} else {
+					dosymlink(hrlist[choice].path ,hrlist[i].path, 0);
+				}
 			}
-		}
+		} // for(i...)
 		break;
 		case 'X':
 		for (i=0; i<hrmax; i++) {
@@ -371,10 +386,21 @@ static void dounlink(const char *path, int fatal)
 
 static void dolink(const char *oldpath, const char *newpath, int fatal)
 {
-	// unlink() with error handling
+	// link() with error handling
 	if (link(oldpath, newpath) == -1) {
 		perror(newpath);
 		if (fatal) EXIT_FAILURE;
 	}
 
-}
+} // dolink()
+
+static void dosymlink(const char *oldpath, const char *newpath,
+						int fatal)
+{
+	// symlink() with error handling
+	if (symlink(oldpath, newpath) == -1) {
+		perror(newpath);
+		if (fatal) EXIT_FAILURE;
+	}
+
+} // dosymlink()

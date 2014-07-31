@@ -2,7 +2,6 @@
 /autom4te.cache/
 /compile
 /config.*
-/configure
 /depcomp
 /.deps/
 /processdups
@@ -12,3 +11,4 @@
 /Makefile.in
 /missing
 /stamp-h1
+/.gitignore
