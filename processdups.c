@@ -61,9 +61,6 @@ static void dolink(const char *oldpath, const char *newpath, int fatal);
 static void dosymlink(const char *oldpath, const char *newpath,
 						int fatal);
 
-extern void *memmem(const void *haystack, size_t haystacklen,
-             const void *needle, size_t needlelen);
-
 static char *helptext =
   "\n\tUsage: processdups [option] duplicates-list\n \n\tOptions:\n"
   "\t-h outputs this help message.\n"
