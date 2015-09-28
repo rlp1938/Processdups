@@ -293,7 +293,7 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -Wall -Wextra
+AM_CFLAGS = -Wall -Wextra -D_GNU_SOURCE=1
 processdups_SOURCES = processdups.c
 man_MANS = processdups.1 cleanuputils.7
 EXTRA_BUILD = processdups.1 cleanuputils.7
